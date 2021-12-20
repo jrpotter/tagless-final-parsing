@@ -1,9 +1,18 @@
   cabal-version:      3.4
-  name:               parser-adt
+  name:               parser-initial
   version:            0.1.0.0
 
-executable parser-adt
+executable parser-initial
   main-is:            Main.hs
+  build-depends:      base ^>=4.14.3.0,
+                      megaparsec,
+                      optparse-applicative,
+                      parser-initial,
+                      text,
+  hs-source-dirs:     app
+  default-language:   Haskell2010
+
+library
   build-depends:      base ^>=4.14.3.0,
                       deepseq,
                       megaparsec,
@@ -12,5 +21,6 @@ executable parser-adt
                       text,
                       transformers,
                       transformers-either
-  hs-source-dirs:     app
+  hs-source-dirs:     src
   default-language:   Haskell2010
+  exposed-modules:    Parser

@@ -1,10 +1,13 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ExplicitForAll #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Main where
+module Parser
+( eval
+, memConsExpr
+, mulPassExpr
+, naiveExpr
+) where
 
 import qualified Control.Monad.Combinators.Expr as E
 import qualified Text.Megaparsec as M
@@ -178,23 +181,6 @@ memConsExpr = do
     z `deepseq` expr z
 
   term = do
-    p <- lift $ M.option Nothing $ Just <$> (symbol "(")
+    p <- lift $ M.option Nothing $ Just <$> symbol "("
     if isJust p then (term >>= expr) <* lift (symbol ")") else
       lift $ EInt <$> integer <|> EBool <$> boolean
-
--- ========================================
--- Main
--- ========================================
-
-run :: FilePath -> IO ()
-run fileName = do
-  handle <- openFile fileName ReadMode
-  contents <- hGetContents handle
-  case M.parse (memConsExpr <* M.eof) fileName contents of
-    Left e -> print $ M.errorBundlePretty e
-    Right a -> print $ eval a
-
-main :: IO ()
-main = do
-  [fileName] <- getArgs
-  run fileName
