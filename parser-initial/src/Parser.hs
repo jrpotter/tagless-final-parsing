@@ -3,7 +3,9 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Parser
-( eval
+( Expr(..)
+, Parser
+, eval
 , memConsExpr
 , mulPassExpr
 , naiveExpr
@@ -42,7 +44,7 @@ data Expr
   | ESub  Expr Expr
   | EAnd  Expr Expr
   | EOr   Expr Expr
-  deriving (Show)
+  deriving (Eq, Show)
 
 eval :: Expr -> Either Text Expr
 eval e@(EInt  _) = pure e
