@@ -3,11 +3,21 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
-{-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Main where
+module Closed.Parser
+( Dynamic(..)
+, Eval(..)
+, Parser
+, SQ(..)
+, Symantics(..)
+, TQ(..)
+, Typeable(..)
+, expr
+, fromDyn
+, toDyn
+) where
 
 import qualified Control.Monad.Combinators.Expr as E
 import qualified Data.Eq.Type as EQ
@@ -16,17 +26,10 @@ import qualified Text.Megaparsec.Char as MC
 import qualified Text.Megaparsec.Char.Lexer as ML
 
 import Control.Applicative ((<|>))
-import Data.Char (isDigit)
 import Data.Eq.Type ((:=))
-import Data.Foldable (foldl')
 import Data.Functor (($>), void)
-import Data.Proxy (Proxy(..))
 import Data.Text (Text, unpack)
-import Data.Text.IO (hGetContents)
 import Data.Void (Void)
-import Numeric (readDec)
-import System.Environment (getArgs)
-import System.IO (IOMode(ReadMode), openFile)
 
 -- ========================================
 -- Symantics
@@ -50,15 +53,15 @@ instance Symantics SQ where
   eAnd (SQ lhs) (SQ rhs) = SQ (eAnd lhs rhs)
   eOr  (SQ lhs) (SQ rhs) = SQ (eOr  lhs rhs)
 
-newtype Expr a = Expr {runExpr :: a} deriving Show
+newtype Eval a = Eval {runEval :: a} deriving Show
 
-instance Symantics Expr where
-  eInt  = Expr
-  eBool = Expr
-  eAdd (Expr lhs) (Expr rhs) = Expr (lhs + rhs)
-  eSub (Expr lhs) (Expr rhs) = Expr (lhs - rhs)
-  eAnd (Expr lhs) (Expr rhs) = Expr (lhs && rhs)
-  eOr  (Expr lhs) (Expr rhs) = Expr (lhs || rhs)
+instance Symantics Eval where
+  eInt  = Eval
+  eBool = Eval
+  eAdd (Eval lhs) (Eval rhs) = Eval (lhs + rhs)
+  eSub (Eval lhs) (Eval rhs) = Eval (lhs - rhs)
+  eAnd (Eval lhs) (Eval rhs) = Eval (lhs && rhs)
+  eOr  (Eval lhs) (Eval rhs) = Eval (lhs || rhs)
 
 -- ========================================
 -- Typeable
@@ -144,12 +147,12 @@ boolean = lexeme_ do
 {-# INLINE boolean #-}
 
 integer :: Parser Integer
-integer = lexeme_ do
-  i <- M.some $ M.satisfy isDigit
-  case readDec i of
-    [(value, "")] -> pure value
-    _ -> fail "integer"
+integer = lexeme_ ML.decimal
 {-# INLINE integer #-}
+
+-- ========================================
+-- Deserialization
+-- ========================================
 
 mkBinary
   :: forall repr a
@@ -184,16 +187,3 @@ expr = expr' >>= \case
       case mkBinary bin lhs' rhs' of
         Nothing -> Left (offset, "Invalid operands for `" <> unpack name <> "`")
         Just a -> pure a
-
--- ========================================
--- Main
--- ========================================
-
-main :: IO ()
-main = do
-  [fileName] <- getArgs
-  handle <- openFile fileName ReadMode
-  contents <- hGetContents handle
-  case M.parse expr fileName contents of
-    Left e -> print $ M.errorBundlePretty e
-    Right a -> print (fromDyn a :: Maybe (Expr Integer))
