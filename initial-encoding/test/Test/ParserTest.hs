@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ExplicitForAll #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.ParserTest
@@ -8,18 +9,28 @@ module Test.ParserTest
 
 import qualified Text.Megaparsec as M
 
+import Data.Bifunctor (first)
+import Data.Functor.Identity (Identity(..))
 import Data.Text (Text, pack)
 import Parser
 import Test.Hspec (Expectation, Spec, describe, it, shouldBe)
 
-runParser :: Parser Expr -> Text -> IO (Either Text Expr)
-runParser m input = pure case M.parse (m <* M.eof) "ParserTest" input of
-  Left e -> Left . pack $ M.errorBundlePretty e
-  Right a -> eval a
+type Parser = ParserT Identity
 
-runParsers :: Text -> IO [Either Text Expr]
-runParsers input =
-  mapM (`runParser` input) [naiveExpr, mulPassExpr, memConsExpr]
+convert :: GExpr a -> Expr
+convert (GInt  a) = EInt a
+convert (GBool a) = EBool a
+convert (GAdd lhs rhs) = EAdd (convert lhs) (convert rhs)
+convert (GSub lhs rhs) = ESub (convert lhs) (convert rhs)
+convert (GAnd lhs rhs) = EAnd (convert lhs) (convert rhs)
+convert (GOr  lhs rhs) = EOr  (convert lhs) (convert rhs)
+
+runParsers :: Text -> [Either Text Expr]
+runParsers input = [runNaive, runMulPass, runMemCons, runGadt'] <*> [input]
+ where
+   runGadt' i = do
+     Wrapper res <- runGadt i
+     pure $ convert res
 
 allEqual :: forall a. Eq a => [a] -> Bool
 allEqual [] = True
@@ -29,13 +40,13 @@ allEqual (x:y:xs) = x == y && allEqual (y : xs)
 
 shouldParse :: Text -> Expr -> Expectation
 shouldParse input expected = do
-  res@(x : _) <- runParsers input
+  let res@(x : _) = runParsers input
   shouldBe x $ Right expected
   shouldBe True $ allEqual res
 
 shouldNotParse :: Text -> Text -> Expectation
 shouldNotParse input expected = do
-  res@(x : _) <- runParsers input
+  let res@(x : _) = runParsers input
   shouldBe x $ Left expected
 
 spec_parser :: Spec
