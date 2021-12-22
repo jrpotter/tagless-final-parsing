@@ -176,8 +176,7 @@ mulPassExpr = expr >>= either (fail . unpack) pure
       lhs' <- lhs
       rhs' <- rhs
       (lhs', rhs') <- cast lhs' rhs'
-      k <- eval $ bin (f lhs') (f rhs')
-      pure $ k `deepseq` k
+      eval $ bin (f lhs') (f rhs')
 
   term = parens expr <|>
          Right . EInt <$> integer <|>
