@@ -1,21 +1,24 @@
 {-# LANGUAGE BlockArguments #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Closed.Parser
+module Parser.Tagless.Closed
 ( Dynamic(..)
 , Eval(..)
-, Parser
 , SQ(..)
 , Symantics(..)
 , TQ(..)
 , Typeable(..)
-, expr
 , fromDyn
+, runMemCons
+, runMulPass
 , toDyn
 ) where
 
@@ -26,10 +29,17 @@ import qualified Text.Megaparsec.Char as MC
 import qualified Text.Megaparsec.Char.Lexer as ML
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData(..), deepseq)
+import Control.Monad (join)
+import Control.Monad.Except (MonadError, throwError)
+import Data.Bifunctor (first)
 import Data.Eq.Type ((:=))
 import Data.Functor (($>), void)
-import Data.Text (Text, unpack)
+import Data.Functor.Identity (runIdentity)
+import Data.Maybe (isJust)
+import Data.Text (Text, pack, unpack)
 import Data.Void (Void)
+import Parser.Utils
 
 -- ========================================
 -- Symantics
@@ -53,7 +63,7 @@ instance Symantics SQ where
   eAnd (SQ lhs) (SQ rhs) = SQ (eAnd lhs rhs)
   eOr  (SQ lhs) (SQ rhs) = SQ (eOr  lhs rhs)
 
-newtype Eval a = Eval {runEval :: a} deriving Show
+newtype Eval a = Eval {runEval :: a} deriving (Eq, Show)
 
 instance Symantics Eval where
   eInt  = Eval
@@ -120,41 +130,10 @@ fromDyn (Dynamic t e) = case t of
     pure $ EQ.coerce (EQ.lift r') e
 
 -- ========================================
--- Parser code
+-- Multiple passes
 -- ========================================
 
-type Parser = M.Parsec Void Text
-
-space :: Parser ()
-space = ML.space MC.space1 M.empty M.empty
-{-# INLINE space #-}
-
-lexeme_ :: forall a. Parser a -> Parser a
-lexeme_ = ML.lexeme $ MC.space1 <|> M.eof
-{-# INLINE lexeme_ #-}
-
-symbol :: Text -> Parser Text
-symbol = ML.symbol space
-{-# INLINE symbol #-}
-
-parens :: forall a. Parser a -> Parser a
-parens = M.between (symbol "(") (symbol ")")
-{-# INLINE parens #-}
-
-boolean :: Parser Bool
-boolean = lexeme_ do
-  MC.string "true" $> True <|> MC.string "false" $> False
-{-# INLINE boolean #-}
-
-integer :: Parser Integer
-integer = lexeme_ ML.decimal
-{-# INLINE integer #-}
-
--- ========================================
--- Deserialization
--- ========================================
-
-mkBinary
+binDyn
   :: forall repr a
    . Symantics repr
   => IsDynamic a
@@ -162,28 +141,93 @@ mkBinary
   -> Dynamic repr
   -> Dynamic repr
   -> Maybe (Dynamic repr)
-mkBinary bin lhs rhs = do
+binDyn bin lhs rhs = do
   lhs' <- fromDyn lhs
   rhs' <- fromDyn rhs
   pure . Dynamic type' $ bin lhs' rhs'
 
-expr :: forall repr. Symantics repr => Parser (Dynamic repr)
-expr = expr' >>= \case
+mulPassExpr :: forall repr. Symantics repr => Parser (Dynamic repr)
+mulPassExpr = expr >>= \case
   Left (offset, msg) -> M.setOffset offset >> fail msg
   Right a -> pure a
  where
-  expr' = E.makeExprParser
-    (parens expr' <|> Right . toDyn <$> integer <|> Right . toDyn <$> boolean)
-    [ [binary' "+" eAdd, binary' "-" eSub]
-    , [binary' "&&" eAnd, binary' "||" eOr]
+  expr = E.makeExprParser term
+    [ [binary "+" eAdd, binary "-" eSub]
+    , [binary "&&" eAnd, binary "||" eOr]
     ]
 
-  binary' name bin = E.InfixL do
+  binary name bin = E.InfixL do
     void $ symbol name
     offset <- M.getOffset
     pure $ \lhs rhs -> do
       lhs' <- lhs
       rhs' <- rhs
-      case mkBinary bin lhs' rhs' of
-        Nothing -> Left (offset, "Invalid operands for `" <> unpack name <> "`")
+      case binDyn bin lhs' rhs' of
+        Nothing -> throwError
+          (offset, "Invalid operands for `" <> unpack name <> "`")
         Just a -> pure a
+
+  term = parens expr <|>
+         Right . toDyn <$> integer <|>
+         Right . toDyn <$> boolean
+
+runMulPass :: forall repr. Symantics repr => Text -> Either Text (Dynamic repr)
+runMulPass input =
+  let res = M.runParser (mulPassExpr <* M.eof) "" input
+   in first (pack . M.errorBundlePretty) res
+
+-- ========================================
+-- Memory consumption
+-- ========================================
+
+instance (NFData t) => NFData (Eval t) where
+  rnf (Eval t) = t `seq` ()
+
+instance NFData (Dynamic Eval) where
+  rnf (Dynamic t e) = e `seq` ()
+
+memConsExpr
+  :: forall repr
+   . Symantics repr
+  => NFData (Dynamic repr)
+  => Parser (Dynamic repr)
+memConsExpr = term >>= expr
+ where
+  expr :: Dynamic repr -> Parser (Dynamic repr)
+  expr t = do
+    op <- M.option Nothing $ Just <$> ops
+    case op of
+      Just OpAdd -> nest t eAdd OpAdd
+      Just OpSub -> nest t eSub OpSub
+      Just OpAnd -> nest t eAnd OpAnd
+      Just OpOr  -> nest t eOr  OpOr
+      _          -> pure t
+
+  nest
+    :: forall a
+     . IsDynamic a
+    => Dynamic repr
+    -> (repr a -> repr a -> repr a)
+    -> Op
+    -> Parser (Dynamic repr)
+  nest t bin op = do
+    t' <- term
+    case binDyn bin t t' of
+      Nothing -> fail $ "Invalid operands for `" <> show op <> "`"
+      Just a -> a `deepseq` expr a
+
+  term :: Parser (Dynamic repr)
+  term = do
+    p <- M.option Nothing $ Just <$> symbol "("
+    if isJust p then (term >>= expr) <* symbol ")" else
+      toDyn <$> integer <|> toDyn <$> boolean
+
+runMemCons
+  :: forall repr
+   . Symantics repr
+  => NFData (Dynamic repr)
+  => Text
+  -> Either Text (Dynamic repr)
+runMemCons input =
+  let res = M.runParser (memConsExpr <* M.eof) "" input
+   in first (pack . M.errorBundlePretty) res

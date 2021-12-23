@@ -1,23 +1,15 @@
-{-# LANGUAGE ExplicitForAll #-}
-{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
-import qualified Text.Megaparsec as M
-
-import Data.Bifunctor (first)
-import Data.Text (Text, pack)
+import Data.Text (Text)
 import Data.Text.IO (hGetContents)
 import Options.Applicative
-import Parser
+import Parser.Initial
 import System.Environment (getArgs)
 import System.IO (IOMode(ReadMode), openFile)
 
-data Args = Args
-  { argsFileName :: !FilePath
-  , argsMethod :: !Text
-  }
+data Args = Args {argsFileName :: !FilePath, argsMethod :: !Text}
 
 args :: Parser Args
 args = Args

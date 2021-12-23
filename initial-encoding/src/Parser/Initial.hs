@@ -5,17 +5,12 @@
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
-module Parser
+module Parser.Initial
 ( Expr(..)
 , GExpr(..)
-, ParserT
 , Wrapper(..)
 , eval
 , gadtEval
-, gadtExpr
-, memConsExpr
-, mulPassExpr
-, naiveExpr
 , runGadt
 , runMemCons
 , runMulPass
@@ -24,29 +19,16 @@ module Parser
 
 import qualified Control.Monad.Combinators.Expr as E
 import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec.Char as MC
-import qualified Text.Megaparsec.Char.Lexer as ML
 
 import Control.Applicative ((<|>))
-import Control.Applicative.Combinators (skipMany)
 import Control.DeepSeq (NFData(..), deepseq)
 import Control.Monad (join)
 import Control.Monad.Except (MonadError, throwError)
-import Control.Monad.State (MonadState, modify)
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Either (hoistEither)
-import Control.Monad.Trans.Except (ExceptT, runExceptT)
 import Data.Bifunctor (bimap, first)
-import Data.Char (isDigit)
-import Data.Foldable (foldl')
-import Data.Functor (($>), void)
+import Data.Functor (void)
 import Data.Maybe (isJust)
 import Data.Text (Text, pack, unpack)
-import Data.Text.IO (hGetContents)
-import Data.Void (Void)
-import Numeric (readDec)
-import System.Environment (getArgs)
-import System.IO (IOMode(ReadMode), openFile)
+import Parser.Utils
 
 -- ========================================
 -- ADT
@@ -92,46 +74,6 @@ binBool lhs rhs = do
   case (lhs', rhs') of
     (EBool lhs'', EBool rhs'') -> pure (lhs'', rhs'')
     _ -> Left "Expected two booleans."
-
--- ========================================
--- Lexers
--- ========================================
-
-type ParserT = M.ParsecT Void Text
-
-space :: forall m. ParserT m ()
-space = ML.space MC.space1 M.empty M.empty
-{-# INLINE space #-}
-
-lexeme :: forall m a. ParserT m a -> ParserT m a
-lexeme = ML.lexeme MC.space
-{-# INLINE lexeme #-}
-
-symbol :: forall m. Text -> ParserT m Text
-symbol = ML.symbol space
-{-# INLINE symbol #-}
-
-parens :: forall m a. ParserT m a -> ParserT m a
-parens = M.between (symbol "(") (symbol ")")
-{-# INLINE parens #-}
-
-boolean :: forall m. ParserT m Bool
-boolean = lexeme $ MC.string "true" $> True <|> MC.string "false" $> False
-{-# INLINE boolean #-}
-
-integer :: forall m. ParserT m Integer
-integer = lexeme ML.decimal
-{-# INLINE integer #-}
-
-data Op = OpAdd | OpSub | OpAnd | OpOr
-
-ops :: forall m. ParserT m Op
-ops = M.choice
-  [ symbol "+" $> OpAdd
-  , symbol "-" $> OpSub
-  , symbol "&&" $> OpAnd
-  , symbol "||" $> OpOr
-  ]
 
 -- ========================================
 -- Naive attempt

@@ -1,4 +1,5 @@
 packages:
   initial-encoding
   leibniz-proof
+  parser-utils
   tagless-final

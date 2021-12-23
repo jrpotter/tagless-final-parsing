@@ -3,7 +3,7 @@
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 
-module Test.ParserTest
+module Test.Parser.InitialTest
 ( spec_parser,
 ) where
 
@@ -12,10 +12,9 @@ import qualified Text.Megaparsec as M
 import Data.Bifunctor (first)
 import Data.Functor.Identity (Identity(..))
 import Data.Text (Text, pack)
-import Parser
+import Parser.Initial
+import Parser.Utils (Parser)
 import Test.Hspec (Expectation, Spec, describe, it, shouldBe)
-
-type Parser = ParserT Identity
 
 convert :: GExpr a -> Expr
 convert (GInt  a) = EInt a
