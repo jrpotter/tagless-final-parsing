@@ -9,6 +9,7 @@ executable initial-encoding
                       megaparsec,
                       mtl,
                       optparse-applicative,
+                      parser-utils,
                       text,
   hs-source-dirs:     app
   default-language:   Haskell2010

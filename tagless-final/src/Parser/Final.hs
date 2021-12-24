@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Parser.Tagless.Closed
+module Parser.Final
 ( Dynamic(..)
 , Eval(..)
 , SQ(..)
@@ -17,28 +17,21 @@ module Parser.Tagless.Closed
 , TQ(..)
 , Typeable(..)
 , fromDyn
-, runMemCons
-, runMulPass
+, parseSingle
+, parseStrict
 , toDyn
 ) where
 
 import qualified Control.Monad.Combinators.Expr as E
 import qualified Data.Eq.Type as EQ
 import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec.Char as MC
-import qualified Text.Megaparsec.Char.Lexer as ML
 
 import Control.Applicative ((<|>))
 import Control.DeepSeq (NFData(..), deepseq)
-import Control.Monad (join)
-import Control.Monad.Except (MonadError, throwError)
-import Data.Bifunctor (first)
 import Data.Eq.Type ((:=))
-import Data.Functor (($>), void)
-import Data.Functor.Identity (runIdentity)
+import Data.Functor (void)
 import Data.Maybe (isJust)
 import Data.Text (Text, pack, unpack)
-import Data.Void (Void)
 import Parser.Utils
 
 -- ========================================
@@ -52,16 +45,6 @@ class Symantics repr where
   eSub  :: repr Integer -> repr Integer -> repr Integer
   eAnd  :: repr Bool -> repr Bool -> repr Bool
   eOr   :: repr Bool -> repr Bool -> repr Bool
-
-newtype SQ a = SQ {runSQ :: forall repr. Symantics repr => repr a}
-
-instance Symantics SQ where
-  eInt  e = SQ (eInt e)
-  eBool e = SQ (eBool e)
-  eAdd (SQ lhs) (SQ rhs) = SQ (eAdd lhs rhs)
-  eSub (SQ lhs) (SQ rhs) = SQ (eSub lhs rhs)
-  eAnd (SQ lhs) (SQ rhs) = SQ (eAnd lhs rhs)
-  eOr  (SQ lhs) (SQ rhs) = SQ (eOr  lhs rhs)
 
 newtype Eval a = Eval {runEval :: a} deriving (Eq, Show)
 
@@ -130,7 +113,7 @@ fromDyn (Dynamic t e) = case t of
     pure $ EQ.coerce (EQ.lift r') e
 
 -- ========================================
--- Multiple passes
+-- Single pass
 -- ========================================
 
 binDyn
@@ -146,8 +129,8 @@ binDyn bin lhs rhs = do
   rhs' <- fromDyn rhs
   pure . Dynamic type' $ bin lhs' rhs'
 
-mulPassExpr :: forall repr. Symantics repr => Parser (Dynamic repr)
-mulPassExpr = expr >>= \case
+parseSingle :: forall repr. Symantics repr => Parser (Dynamic repr)
+parseSingle = expr >>= \case
   Left (offset, msg) -> M.setOffset offset >> fail msg
   Right a -> pure a
  where
@@ -163,21 +146,15 @@ mulPassExpr = expr >>= \case
       lhs' <- lhs
       rhs' <- rhs
       case binDyn bin lhs' rhs' of
-        Nothing -> throwError
-          (offset, "Invalid operands for `" <> unpack name <> "`")
+        Nothing -> Left (offset, "Invalid operands for `" <> unpack name <> "`")
         Just a -> pure a
 
   term = parens expr <|>
          Right . toDyn <$> integer <|>
          Right . toDyn <$> boolean
 
-runMulPass :: forall repr. Symantics repr => Text -> Either Text (Dynamic repr)
-runMulPass input =
-  let res = M.runParser (mulPassExpr <* M.eof) "" input
-   in first (pack . M.errorBundlePretty) res
-
 -- ========================================
--- Memory consumption
+-- Strict
 -- ========================================
 
 instance (NFData t) => NFData (Eval t) where
@@ -186,12 +163,12 @@ instance (NFData t) => NFData (Eval t) where
 instance NFData (Dynamic Eval) where
   rnf (Dynamic t e) = e `seq` ()
 
-memConsExpr
+parseStrict
   :: forall repr
    . Symantics repr
   => NFData (Dynamic repr)
   => Parser (Dynamic repr)
-memConsExpr = term >>= expr
+parseStrict = term >>= expr
  where
   expr :: Dynamic repr -> Parser (Dynamic repr)
   expr t = do
@@ -222,12 +199,30 @@ memConsExpr = term >>= expr
     if isJust p then (term >>= expr) <* symbol ")" else
       toDyn <$> integer <|> toDyn <$> boolean
 
-runMemCons
-  :: forall repr
-   . Symantics repr
-  => NFData (Dynamic repr)
-  => Text
-  -> Either Text (Dynamic repr)
-runMemCons input =
-  let res = M.runParser (memConsExpr <* M.eof) "" input
-   in first (pack . M.errorBundlePretty) res
+-- ========================================
+-- Printer
+-- ========================================
+
+newtype Print a = Print {runPrint :: Text} deriving (Eq, Show)
+
+instance Symantics Print where
+  eInt  = Print . pack . show
+  eBool = Print . pack . show
+  eAdd (Print lhs) (Print rhs) = Print ("(" <> lhs <> " + " <> rhs <> ")")
+  eSub (Print lhs) (Print rhs) = Print ("(" <> lhs <> " - " <> rhs <> ")")
+  eAnd (Print lhs) (Print rhs) = Print ("(" <> lhs <> " && " <> rhs <> ")")
+  eOr  (Print lhs) (Print rhs) = Print ("(" <> lhs <> " || " <> rhs <> ")")
+
+-- ========================================
+-- Closed
+-- ========================================
+
+newtype SQ a = SQ {runSQ :: forall repr. Symantics repr => repr a}
+
+instance Symantics SQ where
+  eInt  e = SQ (eInt e)
+  eBool e = SQ (eBool e)
+  eAdd (SQ lhs) (SQ rhs) = SQ (eAdd lhs rhs)
+  eSub (SQ lhs) (SQ rhs) = SQ (eSub lhs rhs)
+  eAnd (SQ lhs) (SQ rhs) = SQ (eAnd lhs rhs)
+  eOr  (SQ lhs) (SQ rhs) = SQ (eOr  lhs rhs)

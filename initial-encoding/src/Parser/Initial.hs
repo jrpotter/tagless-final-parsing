@@ -8,13 +8,14 @@
 module Parser.Initial
 ( Expr(..)
 , GExpr(..)
+, Result(..)
 , Wrapper(..)
 , eval
-, gadtEval
-, runGadt
-, runMemCons
-, runMulPass
-, runNaive
+, parseGadt
+, parseNaive
+, parseSingle
+, parseStrict
+, toResult
 ) where
 
 import qualified Control.Monad.Combinators.Expr as E
@@ -43,132 +44,112 @@ data Expr
   | EOr   Expr Expr
   deriving (Eq, Show)
 
-eval :: Expr -> Either Text Expr
-eval e@(EInt  _) = pure e
-eval e@(EBool _) = pure e
-eval (EAdd lhs rhs) = do
-  (lhs', rhs') <- binInt lhs rhs
-  pure $ EInt (lhs' + rhs')
-eval (ESub lhs rhs) = do
-  (lhs', rhs') <- binInt lhs rhs
-  pure $ EInt (lhs' - rhs')
-eval (EAnd lhs rhs) = do
-  (lhs', rhs') <- binBool lhs rhs
-  pure $ EBool (lhs' && rhs')
-eval (EOr lhs rhs) = do
-  (lhs', rhs') <- binBool lhs rhs
-  pure $ EBool (lhs' || rhs')
+data Result = RInt Integer | RBool Bool deriving (Eq)
 
-binInt :: Expr -> Expr -> Either Text (Integer, Integer)
-binInt lhs rhs = do
-  lhs' <- eval lhs
-  rhs' <- eval rhs
-  case (lhs', rhs') of
-    (EInt lhs'', EInt rhs'') -> pure (lhs'', rhs'')
-    _ -> Left "Expected two integers."
+instance Show Result where
+  show (RInt e)  = show e
+  show (RBool e) = show e
 
-binBool :: Expr -> Expr -> Either Text (Bool, Bool)
-binBool lhs rhs = do
-  lhs' <- eval lhs
-  rhs' <- eval rhs
-  case (lhs', rhs') of
-    (EBool lhs'', EBool rhs'') -> pure (lhs'', rhs'')
-    _ -> Left "Expected two booleans."
+asInt :: Result -> Either Text Integer
+asInt (RInt e) = pure e
+asInt _ = Left "Could not cast integer."
+
+asBool :: Result -> Either Text Bool
+asBool (RBool e) = pure e
+asBool _ = Left "Could not cast boolean."
+
+toResult :: Expr -> Either Text Result
+toResult (EInt e)  = pure $ RInt e
+toResult (EBool e) = pure $ RBool e
+toResult (EAdd lhs rhs) = do
+  lhs' <- toResult lhs >>= asInt
+  rhs' <- toResult rhs >>= asInt
+  pure $ RInt (lhs' + rhs')
+toResult (ESub lhs rhs) = do
+  lhs' <- toResult lhs >>= asInt
+  rhs' <- toResult rhs >>= asInt
+  pure $ RInt (lhs' - rhs')
+toResult (EAnd lhs rhs) = do
+  lhs' <- toResult lhs >>= asBool
+  rhs' <- toResult rhs >>= asBool
+  pure $ RBool (lhs' && rhs')
+toResult (EOr lhs rhs) = do
+  lhs' <- toResult lhs >>= asBool
+  rhs' <- toResult rhs >>= asBool
+  pure $ RBool (lhs' || rhs')
 
 -- ========================================
 -- Naive attempt
 -- ========================================
 
-naiveExpr :: forall m. ParserT m Expr
-naiveExpr = E.makeExprParser term
-  [ [binary "+" EAdd, binary "-" ESub]
-  , [binary "&&" EAnd, binary "||" EOr]
-  ]
- where
-  binary name f = E.InfixL (f <$ symbol name)
-
-  term = parens naiveExpr <|>
-         EInt <$> integer <|>
-         EBool <$> boolean
-
-runNaive :: Text -> Either Text Expr
-runNaive input =
-  let res = M.parse (naiveExpr <* M.eof) "" input
-   in join $ bimap (pack . M.errorBundlePretty) eval res
-
--- ========================================
--- Multiple passes
--- ========================================
-
-mulPassExpr :: forall m. MonadError Text m => ParserT m Expr
-mulPassExpr = expr >>= either (fail . unpack) pure
+parseNaive :: Parser Result
+parseNaive = expr >>= either (fail . unpack) pure . toResult
  where
   expr = E.makeExprParser term
-    [ [ binary "+"  binInt  EInt  EAdd
-      , binary "-"  binInt  EInt  ESub
-      ]
-    , [ binary "&&" binBool EBool EAnd
-      , binary "||" binBool EBool EOr
-      ]
+    [ [binary "+" EAdd, binary "-" ESub]
+    , [binary "&&" EAnd, binary "||" EOr]
+    ]
+
+  binary name f = E.InfixL (f <$ symbol name)
+
+  term = parens expr <|> EInt <$> integer <|> EBool <$> boolean
+
+-- ========================================
+-- Single pass
+-- ========================================
+
+parseSingle :: Parser Result
+parseSingle = expr >>= either (fail . unpack) pure
+ where
+  expr = E.makeExprParser term
+    [ [binary "+"  asInt  EInt  EAdd, binary "-"  asInt  EInt  ESub]
+    , [binary "&&" asBool EBool EAnd, binary "||" asBool EBool EOr ]
     ]
 
   binary name cast f bin = E.InfixL do
     void $ symbol name
     pure $ \lhs rhs -> do
-      lhs' <- lhs
-      rhs' <- rhs
-      (lhs', rhs') <- cast lhs' rhs'
-      eval $ bin (f lhs') (f rhs')
+      lhs' <- lhs >>= cast
+      rhs' <- rhs >>= cast
+      toResult $ bin (f lhs') (f rhs')
 
-  term = parens expr <|>
-         Right . EInt <$> integer <|>
-         Right . EBool <$> boolean
-
-runMulPass :: Text -> Either Text Expr
-runMulPass input =
-  let res = M.runParserT (mulPassExpr <* M.eof) "" input
-   in res >>= join . bimap (pack . M.errorBundlePretty) eval
+  term = parens expr <|> Right . RInt <$> integer <|> Right . RBool <$> boolean
 
 -- ========================================
--- Memory consumption
+-- Strict
 -- ========================================
 
-instance NFData Expr where
-  rnf (EInt  e) = rnf e
-  rnf (EBool e) = rnf e
-  rnf (EAdd lhs rhs) = rnf lhs `seq` rnf rhs
-  rnf (ESub lhs rhs) = rnf lhs `seq` rnf rhs
-  rnf (EAnd lhs rhs) = rnf lhs `seq` rnf rhs
-  rnf (EOr  lhs rhs) = rnf lhs `seq` rnf rhs
-
-memConsExpr :: forall m. MonadError Text m => ParserT m Expr
-memConsExpr = term >>= expr
+parseStrict :: Parser Result
+parseStrict = term >>= expr
  where
   expr t = do
     op <- M.option Nothing $ Just <$> ops
     case op of
-      Just OpAdd -> nest t EAdd
-      Just OpSub -> nest t ESub
-      Just OpAnd -> nest t EAnd
-      Just OpOr  -> nest t EOr
+      Just OpAdd -> nest t asInt  EInt  EAdd
+      Just OpSub -> nest t asInt  EInt  ESub
+      Just OpAnd -> nest t asBool EBool EAnd
+      Just OpOr  -> nest t asBool EBool EOr
       _          -> pure t
 
-  nest :: Expr -> (Expr -> Expr -> Expr) -> ParserT m Expr
-  nest t bin = do
+  nest
+    :: forall a
+     . Result
+    -> (Result -> Either Text a)
+    -> (a -> Expr)
+    -> (Expr -> Expr -> Expr)
+    -> Parser Result
+  nest t cast f bin = do
     t' <- term
-    case eval (bin t t') of
-      Left e -> throwError e
-      Right a -> a `deepseq` expr a
+    a <- either (fail . unpack) pure do
+      lhs <- cast t
+      rhs <- cast t'
+      toResult $ bin (f lhs) (f rhs)
+    a `seq` expr a
 
   term = do
     p <- M.option Nothing $ Just <$> symbol "("
     if isJust p then (term >>= expr) <* symbol ")" else
-      EInt <$> integer <|> EBool <$> boolean
-
-runMemCons :: Text -> Either Text Expr
-runMemCons input =
-  let res = M.runParserT (memConsExpr <* M.eof) "" input
-   in res >>= join . bimap (pack . M.errorBundlePretty) eval
+      RInt <$> integer <|> RBool <$> boolean
 
 -- ========================================
 -- GADTs
@@ -176,52 +157,44 @@ runMemCons input =
 
 data GExpr a where
   GInt  :: Integer -> GExpr Integer
-  GBool :: Bool    -> GExpr Bool
+  GBool :: Bool -> GExpr Bool
   GAdd  :: GExpr Integer -> GExpr Integer -> GExpr Integer
   GSub  :: GExpr Integer -> GExpr Integer -> GExpr Integer
-  GAnd  :: GExpr Bool    -> GExpr Bool    -> GExpr Bool
-  GOr   :: GExpr Bool    -> GExpr Bool    -> GExpr Bool
-
-instance NFData (GExpr a) where
-  rnf (GInt  e) = rnf e
-  rnf (GBool e) = rnf e
-  rnf (GAdd lhs rhs) = rnf lhs `seq` rnf rhs
-  rnf (GSub lhs rhs) = rnf lhs `seq` rnf rhs
-  rnf (GAnd lhs rhs) = rnf lhs `seq` rnf rhs
-  rnf (GOr  lhs rhs) = rnf lhs `seq` rnf rhs
+  GAnd  :: GExpr Bool -> GExpr Bool -> GExpr Bool
+  GOr   :: GExpr Bool -> GExpr Bool -> GExpr Bool
 
 data Wrapper = forall a. Show a => Wrapper (GExpr a)
 
-fromInt :: GExpr a -> Either Text (GExpr Integer)
-fromInt a@(GInt _  ) = pure a
-fromInt a@(GAdd _ _) = pure a
-fromInt a@(GSub _ _) = pure a
-fromInt _            = Left "Expected an integer type."
+eval :: GExpr a -> a
+eval (GInt a)  = a
+eval (GBool a) = a
+eval (GAdd lhs rhs) = eval lhs + eval rhs
+eval (GSub lhs rhs) = eval lhs - eval rhs
+eval (GAnd lhs rhs) = eval lhs && eval rhs
+eval (GOr lhs rhs)  = eval lhs || eval rhs
 
-fromBool :: GExpr a -> Either Text (GExpr Bool)
-fromBool a@(GBool _  ) = pure a
-fromBool a@(GAnd  _ _) = pure a
-fromBool a@(GOr   _ _) = pure a
-fromBool _             = Left "Expected a boolean type."
+asInt' :: GExpr a -> Either Text (GExpr Integer)
+asInt' a@(GInt _  ) = pure a
+asInt' a@(GAdd _ _) = pure a
+asInt' a@(GSub _ _) = pure a
+asInt' _            = Left "Expected an integer type."
 
-gadtEval :: GExpr a -> a
-gadtEval (GInt a)  = a
-gadtEval (GBool a) = a
-gadtEval (GAdd lhs rhs) = gadtEval lhs + gadtEval rhs
-gadtEval (GSub lhs rhs) = gadtEval lhs - gadtEval rhs
-gadtEval (GAnd lhs rhs) = gadtEval lhs && gadtEval rhs
-gadtEval (GOr lhs rhs)  = gadtEval lhs || gadtEval rhs
+asBool' :: GExpr a -> Either Text (GExpr Bool)
+asBool' a@(GBool _  ) = pure a
+asBool' a@(GAnd  _ _) = pure a
+asBool' a@(GOr   _ _) = pure a
+asBool' _             = Left "Expected a boolean type."
 
-gadtExpr :: forall m. MonadError Text m => ParserT m Wrapper
-gadtExpr = term >>= expr
+parseGadt :: Parser Wrapper
+parseGadt = term >>= expr
  where
   expr t = do
     op <- M.option Nothing $ Just <$> ops
     case op of
-      Just OpAdd -> nest t fromInt  GAdd GInt
-      Just OpSub -> nest t fromInt  GSub GInt
-      Just OpAnd -> nest t fromBool GAnd GBool
-      Just OpOr  -> nest t fromBool GOr  GBool
+      Just OpAdd -> nest t asInt'  GInt  GAdd
+      Just OpSub -> nest t asInt'  GInt  GSub
+      Just OpAnd -> nest t asBool' GBool GAnd
+      Just OpOr  -> nest t asBool' GBool GOr
       _          -> pure t
 
   nest
@@ -229,24 +202,19 @@ gadtExpr = term >>= expr
      . Show b
     => Wrapper
     -> (forall a. GExpr a -> Either Text (GExpr b))
-    -> (GExpr b -> GExpr b -> GExpr b)
     -> (b -> GExpr b)
-    -> ParserT m Wrapper
-  nest (Wrapper t) cast bin f = do
+    -> (GExpr b -> GExpr b -> GExpr b)
+    -> Parser Wrapper
+  nest (Wrapper t) cast f bin = do
     Wrapper t' <- term
     case (cast t, cast t') of
       (Right lhs, Right rhs) -> do
-        let z = f . gadtEval $ bin lhs rhs
-        z `deepseq` expr (Wrapper z)
-      (Left e, _) -> throwError e
-      (_, Left e) -> throwError e
+        let z = eval $ bin lhs rhs
+        z `seq` expr (Wrapper $ f z)
+      (Left e, _) -> fail $ unpack e
+      (_, Left e) -> fail $ unpack e
 
   term = do
     p <- M.option Nothing $ Just <$> symbol "("
     if isJust p then (term >>= expr) <* symbol ")" else
       Wrapper . GInt <$> integer <|> Wrapper . GBool <$> boolean
-
-runGadt :: Text -> Either Text Wrapper
-runGadt input =
-  let res = M.runParserT (gadtExpr <* M.eof) "" input
-   in res >>= first (pack . M.errorBundlePretty)

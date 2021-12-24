@@ -2,52 +2,62 @@
 
 module Main where
 
+import qualified Options.Applicative as O
+import qualified Text.Megaparsec as M
+
 import Data.Text (Text)
 import Data.Text.IO (hGetContents)
-import Options.Applicative
+import Options.Applicative ((<**>))
 import Parser.Initial
+import Parser.Utils
 import System.Environment (getArgs)
 import System.IO (IOMode(ReadMode), openFile)
 
+-- ========================================
+-- Arguments
+-- ========================================
+
 data Args = Args {argsFileName :: !FilePath, argsMethod :: !Text}
 
-args :: Parser Args
+args :: O.Parser Args
 args = Args
-  <$> strArgument (metavar "FILENAME" <> help "The file we want to parse.")
-  <*> strOption
-     ( short 'm'
-    <> long "method"
-    <> metavar "METHOD"
-    <> showDefault
-    <> value "naive"
-    <> help "The parse strategy we want to try. Should be one of \
-            \\"naive\", \"mul_pass\", or \"mem_cons\"."
-     )
+  <$> O.strArgument
+      ( O.metavar "FILENAME" <> O.help "The file we want to parse."
+      )
+  <*> O.strOption
+      ( O.short 'm'
+     <> O.long "method"
+     <> O.metavar "METHOD"
+     <> O.showDefault
+     <> O.value "naive"
+     <> O.help "The parse strategy we want to try. Should be one of 'naive', \
+               \'single', 'strict', or 'gadt'."
+      )
 
-runExpr :: (Text -> Either Text Expr) -> Text -> IO ()
-runExpr f input = case f input >>= eval of
-  Right (EInt e) -> print e
-  Right (EBool e) -> print e
-  _ -> error "Could not evaluate expression fully."
+-- ========================================
+-- Main
+-- ========================================
 
 run :: Args -> IO ()
 run args = do
   handle <- openFile (argsFileName args) ReadMode
-  contents <- hGetContents handle
+  input <- hGetContents handle
   case argsMethod args of
-    "naive"    -> runExpr runNaive contents
-    "mul_pass" -> runExpr runMulPass contents
-    "mem_cons" -> runExpr runMemCons contents
-    "gadt"     -> case runGadt contents of
-                    Left e -> print e
-                    Right (Wrapper a) -> print $ gadtEval a
-    _          -> error "Encountered an invalid parsing strategy."
+    "naive"  -> runExpr parseNaive input
+    "single" -> runExpr parseSingle input
+    "strict" -> runExpr parseStrict input
+    "gadt"   -> case runParser parseGadt input of
+                  Left e -> print e
+                  Right (Wrapper a) -> print $ eval a
+    _        -> error "Encountered an invalid parsing strategy."
+ where
+  runExpr p input = either print print (runParser p input)
 
 main :: IO ()
-main = run =<< execParser opts
+main = run =<< O.execParser opts
  where
-  opts = info (args <**> helper)
-    ( fullDesc
-   <> progDesc "Different parsing strategies using initial encoding"
-   <> header "Initial encoding parsing"
+  opts = O.info (args <**> O.helper)
+    ( O.fullDesc
+   <> O.progDesc "Different parsing strategies using initial encoding"
+   <> O.header "Initial encoding parsing"
     )

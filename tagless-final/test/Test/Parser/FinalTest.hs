@@ -4,16 +4,18 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Test.Parser.Tagless.ClosedTest
+module Test.Parser.FinalTest
 ( spec_parser,
 ) where
 
 import Data.Text (Text)
-import Parser.Tagless.Closed
+import Parser.Final
+import Parser.Utils
 import Test.Hspec (Expectation, Spec, describe, it, shouldBe)
 
-runParsers :: Text -> [Either Text (Dynamic Eval)]
-runParsers input = [runMulPass, runMemCons] <*> [input]
+-- ========================================
+-- Utility
+-- ========================================
 
 instance Eq (Dynamic Eval) where
   d1 == d2 = case (fromDyn @Eval @Integer d1, fromDyn @Eval @Integer d2) of
@@ -29,11 +31,12 @@ instance Show (Dynamic Eval) where
       Just a -> show a
       _ -> error "No valid `Eval` instance."
 
-allEqual :: forall a. Eq a => [a] -> Bool
-allEqual [] = True
-allEqual [x] = True
-allEqual [x, y] = x == y
-allEqual (x:y:xs) = x == y && allEqual (y : xs)
+runParsers :: Text -> [Either Text (Dynamic Eval)]
+runParsers input = [runParser parseSingle, runParser parseStrict] <*> [input]
+
+-- ========================================
+-- Assertions
+-- ========================================
 
 shouldParse :: Text -> Dynamic Eval -> Expectation
 shouldParse input expected = do
@@ -45,6 +48,10 @@ shouldNotParse :: Text -> Text -> Expectation
 shouldNotParse input expected = do
   let res@(x : _) = runParsers input
   shouldBe x $ Left expected
+
+-- ========================================
+-- Tests
+-- ========================================
 
 spec_parser :: Spec
 spec_parser = do

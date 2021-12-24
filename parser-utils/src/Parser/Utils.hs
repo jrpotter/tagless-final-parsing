@@ -5,11 +5,13 @@ module Parser.Utils
 ( Op(..)
 , Parser
 , ParserT
+, allEqual
 , boolean
 , integer
 , lexeme
 , ops
 , parens
+, runParser
 , space
 , symbol
 ) where
@@ -20,8 +22,12 @@ import qualified Text.Megaparsec.Char.Lexer as ML
 
 import Control.Applicative ((<|>))
 import Data.Functor (($>))
-import Data.Text (Text)
+import Data.Text (Text, pack)
 import Data.Void (Void)
+
+-- ========================================
+-- Parsing
+-- ========================================
 
 type Parser = M.Parsec Void Text
 
@@ -66,3 +72,18 @@ ops = M.choice
   , symbol "&&" $> OpAnd
   , symbol "||" $> OpOr
   ]
+
+runParser :: forall a. Parser a -> Text -> Either Text a
+runParser p input = case M.runParser (p <* M.eof) "" input of
+  Left e -> Left . pack $ M.errorBundlePretty e
+  Right a -> pure a
+
+-- ========================================
+-- Utility
+-- ========================================
+
+allEqual :: forall a. Eq a => [a] -> Bool
+allEqual [] = True
+allEqual [x] = True
+allEqual [x, y] = x == y
+allEqual (x:y:xs) = x == y && allEqual (y : xs)
