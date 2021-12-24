@@ -6,7 +6,7 @@ module Main where
 import Data.Text (Text)
 import Data.Text.IO (hGetContents)
 import Options.Applicative
-import Parser.Tagless.Closed
+import Parser.Final
 import System.Environment (getArgs)
 import System.IO (IOMode(ReadMode), openFile)
 

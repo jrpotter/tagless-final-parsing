@@ -10,7 +10,7 @@ module Parser.Initial
 , GExpr(..)
 , Wrapper(..)
 , eval
-, gadtEval
+, evalGadt
 , runGadt
 , runMemCons
 , runMulPass
@@ -204,13 +204,13 @@ fromBool a@(GAnd  _ _) = pure a
 fromBool a@(GOr   _ _) = pure a
 fromBool _             = Left "Expected a boolean type."
 
-gadtEval :: GExpr a -> a
-gadtEval (GInt a)  = a
-gadtEval (GBool a) = a
-gadtEval (GAdd lhs rhs) = gadtEval lhs + gadtEval rhs
-gadtEval (GSub lhs rhs) = gadtEval lhs - gadtEval rhs
-gadtEval (GAnd lhs rhs) = gadtEval lhs && gadtEval rhs
-gadtEval (GOr lhs rhs)  = gadtEval lhs || gadtEval rhs
+evalGadt :: GExpr a -> a
+evalGadt (GInt a)  = a
+evalGadt (GBool a) = a
+evalGadt (GAdd lhs rhs) = evalGadt lhs + evalGadt rhs
+evalGadt (GSub lhs rhs) = evalGadt lhs - evalGadt rhs
+evalGadt (GAnd lhs rhs) = evalGadt lhs && evalGadt rhs
+evalGadt (GOr lhs rhs)  = evalGadt lhs || evalGadt rhs
 
 gadtExpr :: forall m. MonadError Text m => ParserT m Wrapper
 gadtExpr = term >>= expr
@@ -236,7 +236,7 @@ gadtExpr = term >>= expr
     Wrapper t' <- term
     case (cast t, cast t') of
       (Right lhs, Right rhs) -> do
-        let z = f . gadtEval $ bin lhs rhs
+        let z = f . evalGadt $ bin lhs rhs
         z `deepseq` expr (Wrapper z)
       (Left e, _) -> throwError e
       (_, Left e) -> throwError e

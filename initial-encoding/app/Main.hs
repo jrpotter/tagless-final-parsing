@@ -40,7 +40,7 @@ run args = do
     "mem_cons" -> runExpr runMemCons contents
     "gadt"     -> case runGadt contents of
                     Left e -> print e
-                    Right (Wrapper a) -> print $ gadtEval a
+                    Right (Wrapper a) -> print $ evalGadt a
     _          -> error "Encountered an invalid parsing strategy."
 
 main :: IO ()

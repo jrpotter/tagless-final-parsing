@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ViewPatterns #-}
 
-module Parser.Tagless.Closed
+module Parser.Final
 ( Dynamic(..)
 , Eval(..)
 , SQ(..)
@@ -52,16 +52,6 @@ class Symantics repr where
   eSub  :: repr Integer -> repr Integer -> repr Integer
   eAnd  :: repr Bool -> repr Bool -> repr Bool
   eOr   :: repr Bool -> repr Bool -> repr Bool
-
-newtype SQ a = SQ {runSQ :: forall repr. Symantics repr => repr a}
-
-instance Symantics SQ where
-  eInt  e = SQ (eInt e)
-  eBool e = SQ (eBool e)
-  eAdd (SQ lhs) (SQ rhs) = SQ (eAdd lhs rhs)
-  eSub (SQ lhs) (SQ rhs) = SQ (eSub lhs rhs)
-  eAnd (SQ lhs) (SQ rhs) = SQ (eAnd lhs rhs)
-  eOr  (SQ lhs) (SQ rhs) = SQ (eOr  lhs rhs)
 
 newtype Eval a = Eval {runEval :: a} deriving (Eq, Show)
 
@@ -231,3 +221,73 @@ runMemCons
 runMemCons input =
   let res = M.runParser (memConsExpr <* M.eof) "" input
    in first (pack . M.errorBundlePretty) res
+
+-- ========================================
+-- Printer
+-- ========================================
+
+newtype Print a = Print {runPrint :: Text} deriving (Eq, Show)
+
+instance Symantics Print where
+  eInt  = Print . pack . show
+  eBool = Print . pack . show
+  eAdd (Print lhs) (Print rhs) = Print ("(" <> lhs <> " + " <> rhs <> ")")
+  eSub (Print lhs) (Print rhs) = Print ("(" <> lhs <> " - " <> rhs <> ")")
+  eAnd (Print lhs) (Print rhs) = Print ("(" <> lhs <> " && " <> rhs <> ")")
+  eOr  (Print lhs) (Print rhs) = Print ("(" <> lhs <> " || " <> rhs <> ")")
+
+instance (NFData t) => NFData (Print t) where
+  rnf (Print t) = t `seq` ()
+
+instance NFData (Dynamic Print) where
+  rnf (Dynamic _ p) = p `seq` ()
+
+{-
+No instance for (IsDynamic Text)
+Couldn't match type `Eval` with `Print`
+
+evalStuck :: Text -> Either Text (Either Integer Bool, Text)
+evalStuck input = do
+  d <- runMemCons input
+  let e1 = fromDyn d :: Maybe (Eval Integer)
+  let e2 = fromDyn d :: Maybe (Eval Bool)
+  let e3 = fromDyn d :: Maybe (Print Text)
+  ...
+-}
+
+-- ========================================
+-- Closed
+-- ========================================
+
+newtype SQ a = SQ {runSQ :: forall repr. Symantics repr => repr a}
+
+instance Symantics SQ where
+  eInt  e = SQ (eInt e)
+  eBool e = SQ (eBool e)
+  eAdd (SQ lhs) (SQ rhs) = SQ (eAdd lhs rhs)
+  eSub (SQ lhs) (SQ rhs) = SQ (eSub lhs rhs)
+  eAnd (SQ lhs) (SQ rhs) = SQ (eAnd lhs rhs)
+  eOr  (SQ lhs) (SQ rhs) = SQ (eOr  lhs rhs)
+
+instance NFData (SQ t) where
+  rnf _ = ()
+
+instance NFData (Dynamic SQ) where
+  rnf (Dynamic _ _) = ()
+
+evalClosed :: Text -> Either Text (Either Integer Bool, Text)
+evalClosed input = do
+  d <- runMemCons input
+  let e1 = fromDyn d :: Maybe (SQ Integer)
+  let e2 = fromDyn d :: Maybe (SQ Bool)
+  case (e1, e2) of
+    (Just a, _) -> case runSQ a of
+       Eval e -> case runSQ a of Print b -> pure (Left e, b)
+    (_, Just a) -> case runSQ a of
+       Eval e -> case runSQ a of Print b -> pure (Right e, b)
+    _ -> Left "Could not cast into a integer or boolean."
+
+-- ========================================
+-- Open
+-- ========================================
+

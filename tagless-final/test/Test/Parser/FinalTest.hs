@@ -4,12 +4,12 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TypeApplications #-}
 
-module Test.Parser.Tagless.ClosedTest
+module Test.Parser.FinalTest
 ( spec_parser,
 ) where
 
 import Data.Text (Text)
-import Parser.Tagless.Closed
+import Parser.Final
 import Test.Hspec (Expectation, Spec, describe, it, shouldBe)
 
 runParsers :: Text -> [Either Text (Dynamic Eval)]
