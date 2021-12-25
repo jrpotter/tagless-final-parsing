@@ -130,9 +130,9 @@ binDyn bin lhs rhs = do
   pure . Dynamic type' $ bin lhs' rhs'
 
 parseSingle :: forall repr. Symantics repr => Parser (Dynamic repr)
-parseSingle = expr >>= \case
-  Left (offset, msg) -> M.setOffset offset >> fail msg
-  Right a -> pure a
+parseSingle =
+  let ferr (offset, msg) = M.setOffset offset >> fail msg
+   in expr >>= either ferr pure
  where
   expr = E.makeExprParser term
     [ [binary "+" eAdd, binary "-" eSub]

@@ -119,6 +119,10 @@ parseSingle = expr >>= either (fail . unpack) pure
 -- Strict
 -- ========================================
 
+instance NFData Result where
+  rnf (RInt e) = e `seq` ()
+  rnf (RBool e) = e `seq` ()
+
 parseStrict :: Parser Result
 parseStrict = term >>= expr
  where
@@ -144,7 +148,7 @@ parseStrict = term >>= expr
       lhs <- cast t
       rhs <- cast t'
       toResult $ bin (f lhs) (f rhs)
-    a `seq` expr a
+    a `deepseq` expr a
 
   term = do
     p <- M.option Nothing $ Just <$> symbol "("
