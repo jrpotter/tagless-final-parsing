@@ -42,9 +42,9 @@ runExpr :: Parser (Dynamic Eval) -> Text -> IO ()
 runExpr p input = case runParser p input of
   Left e -> print e
   Right d -> case fromDyn @Eval @Integer d of
-    Just a -> print a
+    Just (Eval a) -> print a
     Nothing -> case fromDyn @Eval @Bool d of
-      Just a -> print a
+      Just (Eval a) -> print a
       Nothing -> print "Could not evaluate expression fully."
 
 run :: Args -> IO ()

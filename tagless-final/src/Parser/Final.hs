@@ -30,6 +30,8 @@ import qualified Data.Eq.Type as EQ
 import qualified Text.Megaparsec as M
 
 import Control.Applicative ((<|>))
+import Control.DeepSeq (NFData(..), deepseq)
+import Control.Monad.Combinators (sepBy)
 import Data.Eq.Type ((:=))
 import Data.Functor (void)
 import Data.Maybe (isJust)
@@ -182,7 +184,17 @@ parseSingle = expr >>= either offsetFail pure
 -- Strict
 -- ========================================
 
-parseStrict :: forall repr. TextSymantics repr => Parser (Dynamic repr)
+instance (NFData t) => NFData (Eval t) where
+  rnf (Eval t) = t `seq` ()
+
+instance NFData (Dynamic Eval) where
+  rnf (Dynamic _ e) = e `seq` ()
+
+parseStrict
+  :: forall repr
+   . NFData (Dynamic repr)
+  => TextSymantics repr
+  => Parser (Dynamic repr)
 parseStrict = term >>= expr
  where
   expr :: Dynamic repr -> Parser (Dynamic repr)
@@ -206,7 +218,7 @@ parseStrict = term >>= expr
     t' <- term
     case asDyn bin t t' of
       Nothing -> fail $ "Invalid operands for `" <> show op <> "`"
-      Just a -> a `seq` expr a
+      Just a -> a `deepseq` expr a
 
   term :: Parser (Dynamic repr)
   term = do
