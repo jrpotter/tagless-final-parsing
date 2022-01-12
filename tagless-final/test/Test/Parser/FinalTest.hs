@@ -5,8 +5,9 @@
 {-# LANGUAGE TypeApplications #-}
 
 module Test.Parser.FinalTest
-( spec_parser,
-) where
+  ( spec_parser,
+  )
+where
 
 import Data.Text (Text)
 import Parser.Final
@@ -78,7 +79,9 @@ spec_parser = do
       shouldParse "false || false" (toDyn False)
   describe "invalid types" do
     it "mismatch" do
-      shouldNotParse "true && 1"
+      shouldNotParse
+        "true && 1"
         "1:9:\n  |\n1 | true && 1\n  |         ^\nInvalid operands for `&&`\n"
-      shouldNotParse "1 + true"
+      shouldNotParse
+        "1 + true"
         "1:5:\n  |\n1 | 1 + true\n  |     ^\nInvalid operands for `+`\n"

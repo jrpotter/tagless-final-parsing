@@ -4,41 +4,42 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Test.Parser.InitialTest
-( spec_parser,
-) where
-
-import qualified Text.Megaparsec as M
+  ( spec_parser,
+  )
+where
 
 import Data.Bifunctor (first)
-import Data.Functor.Identity (Identity(..))
+import Data.Functor.Identity (Identity (..))
 import Data.Text (Text, pack)
 import Parser.Initial
 import Parser.Utils (Parser, allEqual, runParser)
 import Test.Hspec (Expectation, Spec, describe, it, shouldBe)
+import qualified Text.Megaparsec as M
 
 -- ========================================
 -- Utility
 -- ========================================
 
 convert :: GExpr a -> Expr
-convert (GInt  a) = EInt a
+convert (GInt a) = EInt a
 convert (GBool a) = EBool a
 convert (GAdd lhs rhs) = EAdd (convert lhs) (convert rhs)
 convert (GSub lhs rhs) = ESub (convert lhs) (convert rhs)
 convert (GAnd lhs rhs) = EAnd (convert lhs) (convert rhs)
-convert (GOr  lhs rhs) = EOr  (convert lhs) (convert rhs)
+convert (GOr lhs rhs) = EOr (convert lhs) (convert rhs)
 
 runParsers :: Text -> [Either Text Result]
 runParsers input =
-  [ runParser parseNaive
-  , runParser parseSingle
-  , runParser parseStrict
-  , runGadt
-  ] <*> [input]
- where
-   runGadt i = do
-     Wrapper res <- runParser parseGadt i
-     toResult $ convert res
+  [ runParser parseNaive,
+    runParser parseSingle,
+    runParser parseStrict,
+    runGadt
+  ]
+    <*> [input]
+  where
+    runGadt i = do
+      Wrapper res <- runParser parseGadt i
+      toResult $ convert res
 
 -- ========================================
 -- Assertions
@@ -84,7 +85,9 @@ spec_parser = do
       shouldParse "false || false" (RBool False)
   describe "invalid types" do
     it "mismatch" do
-      shouldNotParse "true && 1"
+      shouldNotParse
+        "true && 1"
         "1:10:\n  |\n1 | true && 1\n  |          ^\nCould not cast boolean.\n"
-      shouldNotParse "1 + true"
+      shouldNotParse
+        "1 + true"
         "1:9:\n  |\n1 | 1 + true\n  |         ^\nCould not cast integer.\n"

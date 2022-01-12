@@ -34,3 +34,11 @@ $ direnv allow
 
 from the root directory, `nix develop` will be automatically invoked each time
 a change is detected in `flake.nix` or you return to the directory.
+
+## Formatting
+
+Link in `.githooks` by running:
+
+```bash
+$ git config --local core.hooksPath .githooks/
+```

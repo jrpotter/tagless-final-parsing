@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+filesToFormat=$(
+  git --no-pager diff --name-status --no-color --cached | \
+    awk '$1 != "D" && $2 ~ /\.hs/ {print $NF}'
+)
+
+for path in $filesToFormat
+do
+  ormolu --mode inplace $path
+  git add $path
+done;

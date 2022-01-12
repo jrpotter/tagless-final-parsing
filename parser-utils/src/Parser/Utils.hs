@@ -2,28 +2,28 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Parser.Utils
-( Op(..)
-, Parser
-, ParserT
-, allEqual
-, boolean
-, integer
-, lexeme
-, ops
-, parens
-, runParser
-, space
-, symbol
-) where
-
-import qualified Text.Megaparsec as M
-import qualified Text.Megaparsec.Char as MC
-import qualified Text.Megaparsec.Char.Lexer as ML
+  ( Op (..),
+    Parser,
+    ParserT,
+    allEqual,
+    boolean,
+    integer,
+    lexeme,
+    ops,
+    parens,
+    runParser,
+    space,
+    symbol,
+  )
+where
 
 import Control.Applicative ((<|>))
 import Data.Functor (($>))
 import Data.Text (Text, pack)
 import Data.Void (Void)
+import qualified Text.Megaparsec as M
+import qualified Text.Megaparsec.Char as MC
+import qualified Text.Megaparsec.Char.Lexer as ML
 
 -- ========================================
 -- Parsing
@@ -63,15 +63,16 @@ instance Show Op where
   show OpAdd = "+"
   show OpSub = "-"
   show OpAnd = "&&"
-  show OpOr  = "||"
+  show OpOr = "||"
 
 ops :: forall m. ParserT m Op
-ops = M.choice
-  [ symbol "+"  $> OpAdd
-  , symbol "-"  $> OpSub
-  , symbol "&&" $> OpAnd
-  , symbol "||" $> OpOr
-  ]
+ops =
+  M.choice
+    [ symbol "+" $> OpAdd,
+      symbol "-" $> OpSub,
+      symbol "&&" $> OpAnd,
+      symbol "||" $> OpOr
+    ]
 
 runParser :: forall a. Parser a -> Text -> Either Text a
 runParser p input = case M.runParser (p <* M.eof) "" input of
@@ -86,4 +87,4 @@ allEqual :: forall a. Eq a => [a] -> Bool
 allEqual [] = True
 allEqual [x] = True
 allEqual [x, y] = x == y
-allEqual (x:y:xs) = x == y && allEqual (y : xs)
+allEqual (x : y : xs) = x == y && allEqual (y : xs)

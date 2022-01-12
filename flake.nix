@@ -25,6 +25,7 @@
             # https://www.reddit.com/r/Nix/comments/jyczts/nixshell_locale_issue/
             pkgs.glibcLocales
             pkgs.haskellPackages.cabal-install
+            pkgs.haskellPackages.ormolu
             pkgs.haskellPackages.tasty-discover
           ];
         };
