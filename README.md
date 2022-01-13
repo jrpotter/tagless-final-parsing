@@ -12,7 +12,7 @@ and code written on the topic. We conclude with an implementation of an
 interpreter for a toy language that runs quickly, remains strongly-typed, and
 can be extended without modification.
 
-## Experimenting
+## Building
 
 This repository uses Nix for reproducible builds. First
 [install Nix](https://nixos.org/download.html) if you do not currently have it
